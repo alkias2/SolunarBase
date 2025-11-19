@@ -97,25 +97,33 @@ public static class CsvExporter
         // Export hourly data
         for (int i = 0; i < result.HourlyActivity.Count; i++)
         {
-            var hourly = result.HourlyActivity[i];
-            string time = $"{hourly.Hour:D2}:00";
+            var sample = result.HourlyActivity[i];
+            string time = $"{sample.Hour:D2}:{sample.Minute:D2}";
 
             if (hasBreakdown && i < result.ActivityBreakdown!.Count)
             {
-                var breakdown = result.ActivityBreakdown[i];
-                double total = breakdown.SolunarScore + breakdown.WeatherModifier + breakdown.TideModifier;
+                var b = result.ActivityBreakdown[i];
+                double total = b.SolunarScore + b.WeatherModifier + b.TideModifier;
 
-                csv.AppendLine($"{hourly.Hour}," +
-                              $"{time}," +
-                              $"{hourly.Score}," +
-                              $"{breakdown.SolunarScore:F2}," +
-                              $"{breakdown.WeatherModifier:F2}," +
-                              $"{breakdown.TideModifier:F2}," +
-                              $"{total:F2}");
+                csv.AppendLine(string.Join(',', new[]
+                {
+                    sample.Hour.ToString(CultureInfo.InvariantCulture),
+                    time,
+                    sample.Score.ToString(CultureInfo.InvariantCulture),
+                    b.SolunarScore.ToString("F2", CultureInfo.InvariantCulture),
+                    b.WeatherModifier.ToString("F2", CultureInfo.InvariantCulture),
+                    b.TideModifier.ToString("F2", CultureInfo.InvariantCulture),
+                    total.ToString("F2", CultureInfo.InvariantCulture)
+                }));
             }
             else
             {
-                csv.AppendLine($"{hourly.Hour},{time},{hourly.Score}");
+                csv.AppendLine(string.Join(',', new[]
+                {
+                    sample.Hour.ToString(CultureInfo.InvariantCulture),
+                    time,
+                    sample.Score.ToString(CultureInfo.InvariantCulture)
+                }));
             }
         }
 

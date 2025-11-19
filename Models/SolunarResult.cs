@@ -17,6 +17,11 @@ public class ActivityBreakdown
     public int Hour { get; set; }
 
     /// <summary>
+    /// The minute component (0, 15, 30, 45) for quarter-hour resolution.
+    /// </summary>
+    public int Minute { get; set; }
+
+    /// <summary>
     /// Base solunar score (from major/minor periods, moon phase, time of day).
     /// </summary>
     public double SolunarScore { get; set; }

@@ -42,4 +42,19 @@ public static class TimeZoneHelper
         local = DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
         return TimeZoneInfo.ConvertTimeToUtc(local, tz);
     }
+
+    /// <summary>
+    /// Converts a specific local date/hour/minute to UTC using the supplied time zone.
+    /// </summary>
+    /// <param name="localDate">The local date.</param>
+    /// <param name="hour">Hour component (0-23).</param>
+    /// <param name="minute">Minute component (0-59).</param>
+    /// <param name="tz">Resolved time zone.</param>
+    /// <returns>UTC DateTime.</returns>
+    public static DateTime LocalToUtc(DateOnly localDate, int hour, int minute, TimeZoneInfo tz)
+    {
+        var local = localDate.ToDateTime(new TimeOnly(hour, minute));
+        local = DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
+        return TimeZoneInfo.ConvertTimeToUtc(local, tz);
+    }
 }

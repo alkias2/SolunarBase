@@ -118,54 +118,54 @@ public class SolunarCalculator : ISolunarCalculator
             minorUtc.Add(new SolunarPeriod { Type = SolunarPeriodType.Moonset, Start = moonset.Value, End = moonset.Value.AddHours(1), Center = center });
         }
 
-        // STEP 3: Calculate hourly activity scores (0-100) for each hour of the day
-        var hourly = new List<HourlyActivity>();
+        // STEP 3: Calculate activity scores at 15-minute resolution (96 samples)
+        // We evaluate each interval at its midpoint (e.g., 09:00 interval evaluated at 09:07:30)
+        var hourly = new List<HourlyActivity>(); // retains name for backward compatibility
         var breakdown = result.HasWeatherModifiers || result.HasTideModifiers ? new List<ActivityBreakdown>() : null;
-        
-        // Loop through all 24 hours (0-23)
-        for (int hour = 0; hour <= 23; hour++)
+
+        for (int interval = 0; interval < 96; interval++)
         {
-            // Convert local hour to UTC for calculations
-            // We evaluate at the middle of each hour (e.g., 12:30 for hour 12)
-            var t = TimeZoneHelper.LocalMidHourToUtc(input.Date, hour, tz);
-            
-            // Calculate base solunar score
+            int hour = interval / 4;
+            int minute = (interval % 4) * 15;
+
+            // Midpoint minute for evaluation (minute + 7.5). We approximate with minute + 7.
+            int evalMinute = minute + 7; // integer minute; sufficient precision for scoring curves
+            if (evalMinute >= 60) { evalMinute = 59; } // guard overflow at hour end
+
+            var t = TimeZoneHelper.LocalToUtc(input.Date, hour, evalMinute, tz);
+
+            // Base solunar score at this quarter-hour
             double solunarScore = CalculateBaseSolunarScore(t, majorUtc, minorUtc, result.MoonPhase.Phase, sunrise, sunset);
 
-            // Initialize modifiers
             double weatherModifier = 0;
             double tideModifier = 0;
 
-            // Calculate weather modifier if data available
             if (weatherCalc != null && input.WeatherData != null)
             {
-                var weatherForHour = FindWeatherForTime(t, input.WeatherData);
-                var previousWeather = FindWeatherForTime(t.AddHours(-1), input.WeatherData);
-                if (weatherForHour != null)
+                var weatherForTime = FindWeatherForTime(t, input.WeatherData);
+                var previousWeather = FindWeatherForTime(t.AddMinutes(-15), input.WeatherData); // trend over 15 min
+                if (weatherForTime != null)
                 {
-                    weatherModifier = weatherCalc.CalculateModifier(weatherForHour, previousWeather);
+                    weatherModifier = weatherCalc.CalculateModifier(weatherForTime, previousWeather);
                 }
             }
 
-            // Calculate tide modifier if data available
             if (tideCalc != null && input.TideData != null)
             {
                 tideModifier = tideCalc.CalculateModifier(t, input.TideData);
             }
 
-            // STEP 4: Combine solunar score with modifiers
             double totalScore = solunarScore + weatherModifier + tideModifier;
-
-            // Clamp final score to 0-100 range and round to integer
             int final = (int)Math.Round(Math.Clamp(totalScore, 0, 100));
-            hourly.Add(new HourlyActivity { Hour = hour, Score = final });
 
-            // Add breakdown if modifiers were used
+            hourly.Add(new HourlyActivity { Hour = hour, Minute = minute, Score = final });
+
             if (breakdown != null)
             {
                 breakdown.Add(new ActivityBreakdown
                 {
                     Hour = hour,
+                    Minute = minute,
                     SolunarScore = solunarScore,
                     WeatherModifier = weatherModifier,
                     TideModifier = tideModifier,
