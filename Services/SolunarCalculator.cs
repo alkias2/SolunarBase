@@ -52,12 +52,23 @@ public class SolunarCalculator : ISolunarCalculator
         // This ensures all local time conversions use the correct time zone
         var tz = TimeZoneHelper.Resolve(input.TimeZoneId);
         
+        // Initialize modifier calculators if data is provided
+        var weights = input.Weights ?? new ModifierWeights(); // Use provided weights or defaults
+        WeatherModifierCalculator? weatherCalc = input.WeatherData != null && input.WeatherData.Count > 0
+            ? new WeatherModifierCalculator(weights)
+            : null;
+        TideModifierCalculator? tideCalc = input.TideData != null && input.TideData.Count > 0
+            ? new TideModifierCalculator(weights)
+            : null;
+        
         // Initialize the result object with basic information
         var result = new SolunarResult
         {
             Date = input.Date,
             Location = new Location { Latitude = input.Latitude, Longitude = input.Longitude },
-            TimeZoneId = tz.Id
+            TimeZoneId = tz.Id,
+            HasWeatherModifiers = weatherCalc != null,
+            HasTideModifiers = tideCalc != null
         };
 
         // STEP 1: Retrieve all astronomical data for the given location and date
@@ -109,6 +120,7 @@ public class SolunarCalculator : ISolunarCalculator
 
         // STEP 3: Calculate hourly activity scores (0-100) for each hour of the day
         var hourly = new List<HourlyActivity>();
+        var breakdown = result.HasWeatherModifiers || result.HasTideModifiers ? new List<ActivityBreakdown>() : null;
         
         // Loop through all 24 hours (0-23)
         for (int hour = 0; hour <= 23; hour++)
@@ -116,68 +128,58 @@ public class SolunarCalculator : ISolunarCalculator
             // Convert local hour to UTC for calculations
             // We evaluate at the middle of each hour (e.g., 12:30 for hour 12)
             var t = TimeZoneHelper.LocalMidHourToUtc(input.Date, hour, tz);
-            double score = 0;
-
-            // Calculate contribution from major periods using Gaussian decay
-            // Maximum contribution is 100 points within ±90 minutes of period center
-            foreach (var p in majorUtc)
-            {
-                var dist = Math.Abs((t - p.Center).TotalMinutes);  // Distance in minutes from period center
-                if (dist <= 90)  // Only contribute if within 90-minute window
-                {
-                    // Gaussian decay: score decreases as distance from center increases
-                    // Formula: 100 * e^(-(dist²/800))
-                    // At center (dist=0): 100 points
-                    // At ±45 min: ~60 points
-                    // At ±90 min: ~10 points
-                    var contrib = 100 * Math.Exp(-(dist * dist) / 800.0);
-                    score = Math.Max(score, contrib);  // Take the maximum if multiple periods overlap
-                }
-            }
             
-            // Calculate contribution from minor periods using steeper Gaussian decay
-            // Maximum contribution is 70 points within ±45 minutes of period center
-            foreach (var p in minorUtc)
+            // Calculate base solunar score
+            double solunarScore = CalculateBaseSolunarScore(t, majorUtc, minorUtc, result.MoonPhase.Phase, sunrise, sunset);
+
+            // Initialize modifiers
+            double weatherModifier = 0;
+            double tideModifier = 0;
+
+            // Calculate weather modifier if data available
+            if (weatherCalc != null && input.WeatherData != null)
             {
-                var dist = Math.Abs((t - p.Center).TotalMinutes);
-                if (dist <= 45)  // Only contribute if within 45-minute window
+                var weatherForHour = FindWeatherForTime(t, input.WeatherData);
+                var previousWeather = FindWeatherForTime(t.AddHours(-1), input.WeatherData);
+                if (weatherForHour != null)
                 {
-                    // Steeper decay for minor periods: 70 * e^(-(dist²/200))
-                    // At center: 70 points
-                    // At ±30 min: ~15 points
-                    // At ±45 min: ~3 points
-                    var contrib = 70 * Math.Exp(-(dist * dist) / 200.0);
-                    score = Math.Max(score, contrib);
+                    weatherModifier = weatherCalc.CalculateModifier(weatherForHour, previousWeather);
                 }
             }
 
-            // STEP 4: Apply moon phase multiplier (0.9 - 1.1)
-            // New moon and full moon are considered more active periods
-            var phaseMult = GetPhaseMultiplier(result.MoonPhase.Phase);
-            score *= phaseMult;
-
-            // STEP 5: Apply time of day multiplier (0.8 - 1.1)
-            // Activity is higher during dawn/dusk and lower during midday
-            var dayMult = GetDayTimeMultiplier(t, sunrise, sunset);
-            score *= dayMult;
-
-            // STEP 6: Add overlap bonus if this hour falls within both major and minor periods
-            // When periods overlap, activity is considered even higher (+18 bonus points)
-            if (IsInAny(t, majorUtc) && IsInAny(t, minorUtc))
+            // Calculate tide modifier if data available
+            if (tideCalc != null && input.TideData != null)
             {
-                score += 18;
+                tideModifier = tideCalc.CalculateModifier(t, input.TideData);
             }
+
+            // STEP 4: Combine solunar score with modifiers
+            double totalScore = solunarScore + weatherModifier + tideModifier;
 
             // Clamp final score to 0-100 range and round to integer
-            int final = (int)Math.Round(Math.Clamp(score, 0, 100));
+            int final = (int)Math.Round(Math.Clamp(totalScore, 0, 100));
             hourly.Add(new HourlyActivity { Hour = hour, Score = final });
+
+            // Add breakdown if modifiers were used
+            if (breakdown != null)
+            {
+                breakdown.Add(new ActivityBreakdown
+                {
+                    Hour = hour,
+                    SolunarScore = solunarScore,
+                    WeatherModifier = weatherModifier,
+                    TideModifier = tideModifier,
+                    TotalScore = final
+                });
+            }
         }
         
         // Store hourly activity and calculate overall daily rating
         result.HourlyActivity = hourly;
+        result.ActivityBreakdown = breakdown;
         result.SolunarRating = GetOverallRating(hourly);
 
-        // STEP 7: Convert all periods from UTC to local time zone for output
+        // STEP 5: Convert all periods from UTC to local time zone for output
         // Users expect to see times in their local time zone
         foreach (var p in majorUtc)
         {
@@ -201,6 +203,91 @@ public class SolunarCalculator : ISolunarCalculator
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Calculates the base solunar activity score without weather/tide modifiers.
+    /// </summary>
+    /// <param name="t">The time to evaluate (UTC).</param>
+    /// <param name="majorUtc">Major solunar periods.</param>
+    /// <param name="minorUtc">Minor solunar periods.</param>
+    /// <param name="moonPhase">Moon phase name.</param>
+    /// <param name="sunriseUtc">Sunrise time (UTC).</param>
+    /// <param name="sunsetUtc">Sunset time (UTC).</param>
+    /// <returns>Base score from 0-100.</returns>
+    private static double CalculateBaseSolunarScore(DateTime t, List<SolunarPeriod> majorUtc, 
+        List<SolunarPeriod> minorUtc, string moonPhase, DateTime? sunriseUtc, DateTime? sunsetUtc)
+    {
+        double score = 0;
+
+        // Calculate contribution from major periods using Gaussian decay
+        // Maximum contribution is 100 points within ±90 minutes of period center
+        foreach (var p in majorUtc)
+        {
+            var dist = Math.Abs((t - p.Center).TotalMinutes);  // Distance in minutes from period center
+            if (dist <= 90)  // Only contribute if within 90-minute window
+            {
+                // Gaussian decay: score decreases as distance from center increases
+                // Formula: 100 * e^(-(dist²/800))
+                // At center (dist=0): 100 points
+                // At ±45 min: ~60 points
+                // At ±90 min: ~10 points
+                var contrib = 100 * Math.Exp(-(dist * dist) / 800.0);
+                score = Math.Max(score, contrib);  // Take the maximum if multiple periods overlap
+            }
+        }
+        
+        // Calculate contribution from minor periods using steeper Gaussian decay
+        // Maximum contribution is 70 points within ±45 minutes of period center
+        foreach (var p in minorUtc)
+        {
+            var dist = Math.Abs((t - p.Center).TotalMinutes);
+            if (dist <= 45)  // Only contribute if within 45-minute window
+            {
+                // Steeper decay for minor periods: 70 * e^(-(dist²/200))
+                // At center: 70 points
+                // At ±30 min: ~15 points
+                // At ±45 min: ~3 points
+                var contrib = 70 * Math.Exp(-(dist * dist) / 200.0);
+                score = Math.Max(score, contrib);
+            }
+        }
+
+        // Apply moon phase multiplier (0.9 - 1.1)
+        // New moon and full moon are considered more active periods
+        var phaseMult = GetPhaseMultiplier(moonPhase);
+        score *= phaseMult;
+
+        // Apply time of day multiplier (0.8 - 1.1)
+        // Activity is higher during dawn/dusk and lower during midday
+        var dayMult = GetDayTimeMultiplier(t, sunriseUtc, sunsetUtc);
+        score *= dayMult;
+
+        // Add overlap bonus if this hour falls within both major and minor periods
+        // When periods overlap, activity is considered even higher (+18 bonus points)
+        if (IsInAny(t, majorUtc) && IsInAny(t, minorUtc))
+        {
+            score += 18;
+        }
+
+        return score;
+    }
+
+    /// <summary>
+    /// Finds the weather data closest to the specified time.
+    /// </summary>
+    /// <param name="time">The time to find weather for (UTC).</param>
+    /// <param name="weatherData">Collection of weather observations.</param>
+    /// <returns>The weather data for the closest hour, or null if not found.</returns>
+    private static WeatherData? FindWeatherForTime(DateTime time, List<WeatherData> weatherData)
+    {
+        if (weatherData == null || weatherData.Count == 0)
+            return null;
+
+        // Find the weather entry with the closest timestamp
+        return weatherData
+            .OrderBy(w => Math.Abs((w.Timestamp - time).TotalMinutes))
+            .FirstOrDefault();
     }
 
     /// <summary>

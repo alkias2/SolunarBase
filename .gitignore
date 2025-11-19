@@ -404,4 +404,5 @@ $RECYCLE.BIN/
 appsettings.json
 appsettings.*.json
 Output/*.json
+Output/*.csv
 _ReferenceFiles*/

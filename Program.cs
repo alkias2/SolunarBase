@@ -12,12 +12,13 @@ namespace SolunarBase
     /// Steps:
     /// 1. Load configuration (appsettings + defaults)
     /// 2. Parse command-line overrides (lat, lon, date, timezone)
-    /// 3. Build input model
-    /// 4. Perform solunar calculations
-    /// 5. Serialize result to JSON and write to console
-    /// 6. Ensure output directory exists
-    /// 7. Persist result JSON to file
-    /// 8. Report saved file path
+    /// 3. Load optional Weather and Tide JSON data files
+    /// 4. Build input model with all available data
+    /// 5. Perform solunar calculations with modifiers
+    /// 6. Serialize result to JSON and write to console
+    /// 7. Ensure output directory exists
+    /// 8. Persist result JSON to file
+    /// 9. Report saved file path
     /// </summary>
     internal class Program
     {
@@ -57,23 +58,92 @@ namespace SolunarBase
                 timeZoneId = args[3];
             }
 
-            // STEP 3: Instantiate calculators (astronomy + solunar logic)
+            // STEP 3: Load optional Weather and Tide data from JSON files in _ReferenceFiles-Solunar
+            List<WeatherData>? weatherData = null;
+            List<TideData>? tideData = null;
+            ModifierWeights? weights = null;
+
+            string referenceDir = Path.Combine(Directory.GetCurrentDirectory(), "_ReferenceFiles-Solunar");
+            
+            // Try to load Weather.json
+            string weatherFile = Path.Combine(referenceDir, "Weather.json");
+            if (File.Exists(weatherFile))
+            {
+                try
+                {
+                    string weatherJson = File.ReadAllText(weatherFile);
+                    var weatherCollection = JsonSerializer.Deserialize<WeatherDataCollection>(weatherJson,
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    weatherData = weatherCollection?.Weather;
+                    if (weatherData != null && weatherData.Count > 0)
+                    {
+                        Console.WriteLine($"Loaded {weatherData.Count} weather observations from Weather.json");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Warning: Could not load Weather.json: {ex.Message}");
+                }
+            }
+
+            // Try to load Tide.json
+            string tideFile = Path.Combine(referenceDir, "Tide.json");
+            if (File.Exists(tideFile))
+            {
+                try
+                {
+                    string tideJson = File.ReadAllText(tideFile);
+                    var tideCollection = JsonSerializer.Deserialize<TideDataCollection>(tideJson,
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    tideData = tideCollection?.Tide;
+                    if (tideData != null && tideData.Count > 0)
+                    {
+                        Console.WriteLine($"Loaded {tideData.Count} tide events from Tide.json");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Warning: Could not load Tide.json: {ex.Message}");
+                }
+            }
+
+            // Try to load custom weights configuration (if exists)
+            string weightsFile = Path.Combine(referenceDir, "Weights.json");
+            if (File.Exists(weightsFile))
+            {
+                try
+                {
+                    string weightsJson = File.ReadAllText(weightsFile);
+                    weights = JsonSerializer.Deserialize<ModifierWeights>(weightsJson,
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    Console.WriteLine("Loaded custom modifier weights from Weights.json");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Warning: Could not load Weights.json, using defaults: {ex.Message}");
+                }
+            }
+
+            // STEP 4: Instantiate calculators (astronomy + solunar logic)
             var astro = new AstronomyCalculator();
             var solunar = new SolunarCalculator(astro);
 
-            // STEP 4: Build the input DTO with resolved parameters
+            // STEP 5: Build the input DTO with resolved parameters and optional modifiers
             var input = new SolunarInput
             {
                 Latitude = lat,
                 Longitude = lon,
                 Date = date,
-                TimeZoneId = timeZoneId
+                TimeZoneId = timeZoneId,
+                WeatherData = weatherData,
+                TideData = tideData,
+                Weights = weights
             };
 
-            // STEP 5: Execute solunar calculation producing all periods & scores
+            // STEP 6: Execute solunar calculation producing all periods & scores with modifiers
             var result = solunar.Calculate(input);
 
-            // STEP 6: Serialize result to JSON (camelCase, ignore nulls) and print to console
+            // STEP 7: Serialize result to JSON (camelCase, ignore nulls) and print to console
             var json = JsonSerializer.Serialize(result, new JsonSerializerOptions
             {
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -82,20 +152,43 @@ namespace SolunarBase
             });
             Console.WriteLine(json);
 
-            // STEP 7: Ensure output directory exists (create if missing)
+            // STEP 8: Ensure output directory exists (create if missing)
             if (!Directory.Exists(outputDir))
             {
                 Directory.CreateDirectory(outputDir);
             }
 
-            // STEP 8: Construct deterministic filename (lat_lon_date) and persist JSON
+            // STEP 9: Construct deterministic filename (lat_lon_date) and persist JSON
             string latStr = (args.Length >= 2 ? args[0] : lat.ToString("G17", CultureInfo.InvariantCulture)).Replace(',', '.');
             string lonStr = (args.Length >= 2 ? args[1] : lon.ToString("G17", CultureInfo.InvariantCulture)).Replace(',', '.');
             string dateStr = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             string fileName = $"solunar_{latStr}_{lonStr}_{dateStr}.json";
             string filePath = Path.Combine(outputDir, fileName);
             File.WriteAllText(filePath, json);
-            Console.WriteLine($"Saved to {filePath}"); // Final status output
+            Console.WriteLine($"Saved JSON to {filePath}"); // JSON output status
+
+            // STEP 10: Export to CSV files for Excel analysis
+            try
+            {
+                // Export major/minor periods to CSV
+                string periodsFile = Path.Combine(outputDir, $"solunar_periods_{latStr}_{lonStr}_{dateStr}.csv");
+                CsvExporter.ExportPeriodsToCsv(result, periodsFile);
+                Console.WriteLine($"Saved Periods CSV to {periodsFile}");
+
+                // Export hourly activity to CSV
+                string hourlyFile = Path.Combine(outputDir, $"solunar_hourly_{latStr}_{lonStr}_{dateStr}.csv");
+                CsvExporter.ExportHourlyActivityToCsv(result, hourlyFile);
+                Console.WriteLine($"Saved Hourly Activity CSV to {hourlyFile}");
+
+                // Export summary to CSV
+                string summaryFile = Path.Combine(outputDir, $"solunar_summary_{latStr}_{lonStr}_{dateStr}.csv");
+                CsvExporter.ExportSummaryToCsv(result, summaryFile);
+                Console.WriteLine($"Saved Summary CSV to {summaryFile}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Warning: Error exporting CSV files: {ex.Message}");
+            }
         }
     }
 }
