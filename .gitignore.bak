@@ -405,6 +405,4 @@ appsettings.json
 appsettings.*.json
 Output/*.json
 Output/*.csv
-Input/*
-!Input/.gitkeep
 _ReferenceFiles*/

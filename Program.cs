@@ -37,7 +37,15 @@ namespace SolunarBase
             // If provided, these supersede values from configuration
             double lat = settings.Latitude;
             double lon = settings.Longitude;
+            // Resolve date: command-line > appsettings > today (UTC)
             DateOnly date = DateOnly.FromDateTime(DateTime.UtcNow);
+            if (!string.IsNullOrWhiteSpace(settings.Date))
+            {
+                if (DateOnly.TryParseExact(settings.Date.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var cfgDate))
+                {
+                    date = cfgDate;
+                }
+            }
             string timeZoneId = settings.TimeZoneId;
             string outputDir = settings.OutputDirectory;
 
@@ -58,15 +66,21 @@ namespace SolunarBase
                 timeZoneId = args[3];
             }
 
-            // STEP 3: Load optional Weather and Tide data from JSON files in _ReferenceFiles-Solunar
+            // STEP 3: Load optional Weather and Tide data from JSON files in settings.InputDirectory
             List<WeatherData>? weatherData = null;
             List<TideData>? tideData = null;
             ModifierWeights? weights = null;
 
-            string referenceDir = Path.Combine(Directory.GetCurrentDirectory(), "_ReferenceFiles-Solunar");
+            string referenceDir = Path.Combine(Directory.GetCurrentDirectory(), settings.InputDirectory ?? "_ReferenceFiles-Solunar");
+            if (!Directory.Exists(referenceDir))
+            {
+                // Fallback to previous default directory for backward compatibility
+                var fallback = Path.Combine(Directory.GetCurrentDirectory(), "_ReferenceFiles-Solunar");
+                if (Directory.Exists(fallback)) referenceDir = fallback;
+            }
             
             // Try to load Weather.json
-            string weatherFile = Path.Combine(referenceDir, "Weather.json");
+            string weatherFile = Path.Combine(referenceDir, settings.WeatherFile ?? "Weather.json");
             if (File.Exists(weatherFile))
             {
                 try
@@ -87,7 +101,7 @@ namespace SolunarBase
             }
 
             // Try to load Tide.json
-            string tideFile = Path.Combine(referenceDir, "Tide.json");
+            string tideFile = Path.Combine(referenceDir, settings.TideFile ?? "Tide.json");
             if (File.Exists(tideFile))
             {
                 try
@@ -107,21 +121,15 @@ namespace SolunarBase
                 }
             }
 
-            // Try to load custom weights configuration (if exists)
-            string weightsFile = Path.Combine(referenceDir, "Weights.json");
-            if (File.Exists(weightsFile))
+            // Load weights from appsettings or use defaults from ModifierWeights class
+            if (settings.WeightSettings != null)
             {
-                try
-                {
-                    string weightsJson = File.ReadAllText(weightsFile);
-                    weights = JsonSerializer.Deserialize<ModifierWeights>(weightsJson,
-                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                    Console.WriteLine("Loaded custom modifier weights from Weights.json");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Warning: Could not load Weights.json, using defaults: {ex.Message}");
-                }
+                weights = settings.WeightSettings;
+                Console.WriteLine("Loaded custom modifier weights from appsettings.json");
+            }
+            else
+            {
+                Console.WriteLine("Using default modifier weights from ModifierWeights class");
             }
 
             // STEP 4: Instantiate calculators (astronomy + solunar logic)
