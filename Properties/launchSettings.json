@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "SolunarBase": {
+      "commandName": "Project",
+      "workingDirectory": "$(ProjectDir)"
+    }
+  }
+}

@@ -25,8 +25,12 @@ namespace SolunarBase
         static void Main(string[] args)
         {
             // STEP 1: Load configuration (appsettings.json) into a settings object
+            // Resolve project root regardless of current working directory (VS vs VS Code)
+            var exeBase = AppContext.BaseDirectory; // ...\bin\Debug\net8.0\
+            var projectRoot = Path.GetFullPath(Path.Combine(exeBase, "..", "..", ".."));
+
             var config = new ConfigurationBuilder()
-                .SetBasePath(Directory.GetCurrentDirectory())
+                .SetBasePath(projectRoot)
                 .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
                 .Build();
 
@@ -47,7 +51,12 @@ namespace SolunarBase
                 }
             }
             string timeZoneId = settings.TimeZoneId;
+            // Resolve output directory relative to project root if not absolute
             string outputDir = settings.OutputDirectory;
+            if (!Path.IsPathRooted(outputDir))
+            {
+                outputDir = Path.GetFullPath(Path.Combine(projectRoot, outputDir));
+            }
 
             if (args.Length >= 2)
             {
@@ -71,11 +80,16 @@ namespace SolunarBase
             List<TideData>? tideData = null;
             ModifierWeights? weights = null;
 
-            string referenceDir = Path.Combine(Directory.GetCurrentDirectory(), settings.InputDirectory ?? "_ReferenceFiles-Solunar");
+            // Resolve input directory relative to project root if not absolute
+            string referenceDir = settings.InputDirectory ?? "_ReferenceFiles-Solunar";
+            if (!Path.IsPathRooted(referenceDir))
+            {
+                referenceDir = Path.GetFullPath(Path.Combine(projectRoot, referenceDir));
+            }
             if (!Directory.Exists(referenceDir))
             {
-                // Fallback to previous default directory for backward compatibility
-                var fallback = Path.Combine(Directory.GetCurrentDirectory(), "_ReferenceFiles-Solunar");
+                // Fallback to legacy default directory under project root
+                var fallback = Path.GetFullPath(Path.Combine(projectRoot, "_ReferenceFiles-Solunar"));
                 if (Directory.Exists(fallback)) referenceDir = fallback;
             }
             
