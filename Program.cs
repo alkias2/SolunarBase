@@ -1,9 +1,9 @@
 ﻿using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using Microsoft.Extensions.Configuration;
 using SolunarBase.Models;
 using SolunarBase.Services;
-using System.IO;
-using Microsoft.Extensions.Configuration;
 
 namespace SolunarBase
 {
@@ -22,8 +22,7 @@ namespace SolunarBase
     /// </summary>
     internal class Program
     {
-        static void Main(string[] args)
-        {
+        private static void Main(string[] args) {
             // STEP 1: Load configuration (appsettings.json) into a settings object
             // Resolve project root regardless of current working directory (VS vs VS Code)
             var exeBase = AppContext.BaseDirectory; // ...\bin\Debug\net8.0\
@@ -31,7 +30,7 @@ namespace SolunarBase
 
             var config = new ConfigurationBuilder()
                 .SetBasePath(projectRoot)
-                .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+                .AddJsonFile("appsettings.json", true, false)
                 .Build();
 
             var settings = new SolunarSettings();
@@ -43,35 +42,35 @@ namespace SolunarBase
             double lon = settings.Longitude;
             // Resolve date: command-line > appsettings > today (UTC)
             DateOnly date = DateOnly.FromDateTime(DateTime.UtcNow);
-            if (!string.IsNullOrWhiteSpace(settings.Date))
-            {
-                if (DateOnly.TryParseExact(settings.Date.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var cfgDate))
-                {
+            if (!string.IsNullOrWhiteSpace(settings.Date)) {
+                if (DateOnly.TryParseExact(settings.Date.Trim(),
+                        "yyyy-MM-dd",
+                        CultureInfo.InvariantCulture,
+                        DateTimeStyles.None,
+                        out var cfgDate)) {
                     date = cfgDate;
                 }
             }
+
             string timeZoneId = settings.TimeZoneId;
             // Resolve output directory relative to project root if not absolute
             string outputDir = settings.OutputDirectory;
-            if (!Path.IsPathRooted(outputDir))
-            {
+            if (!Path.IsPathRooted(outputDir)) {
                 outputDir = Path.GetFullPath(Path.Combine(projectRoot, outputDir));
             }
 
-            if (args.Length >= 2)
-            {
+            if (args.Length >= 2) {
                 double.TryParse(args[0], NumberStyles.Float, CultureInfo.InvariantCulture, out lat);
                 double.TryParse(args[1], NumberStyles.Float, CultureInfo.InvariantCulture, out lon);
             }
-            if (args.Length >= 3)
-            {
-                if (DateOnly.TryParse(args[2], CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
-                {
+
+            if (args.Length >= 3) {
+                if (DateOnly.TryParse(args[2], CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)) {
                     date = d;
                 }
             }
-            if (args.Length >= 4)
-            {
+
+            if (args.Length >= 4) {
                 timeZoneId = args[3];
             }
 
@@ -82,67 +81,58 @@ namespace SolunarBase
 
             // Resolve input directory relative to project root if not absolute
             string referenceDir = settings.InputDirectory ?? "_ReferenceFiles-Solunar";
-            if (!Path.IsPathRooted(referenceDir))
-            {
+            if (!Path.IsPathRooted(referenceDir)) {
                 referenceDir = Path.GetFullPath(Path.Combine(projectRoot, referenceDir));
             }
-            if (!Directory.Exists(referenceDir))
-            {
+
+            if (!Directory.Exists(referenceDir)) {
                 // Fallback to legacy default directory under project root
                 var fallback = Path.GetFullPath(Path.Combine(projectRoot, "_ReferenceFiles-Solunar"));
-                if (Directory.Exists(fallback)) referenceDir = fallback;
+                if (Directory.Exists(fallback)) {
+                    referenceDir = fallback;
+                }
             }
-            
+
             // Try to load Weather.json
             string weatherFile = Path.Combine(referenceDir, settings.WeatherFile ?? "Weather.json");
-            if (File.Exists(weatherFile))
-            {
-                try
-                {
+            if (File.Exists(weatherFile)) {
+                try {
                     string weatherJson = File.ReadAllText(weatherFile);
                     var weatherCollection = JsonSerializer.Deserialize<WeatherDataCollection>(weatherJson,
                         new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                     weatherData = weatherCollection?.Weather;
-                    if (weatherData != null && weatherData.Count > 0)
-                    {
+                    if (weatherData != null && weatherData.Count > 0) {
                         Console.WriteLine($"Loaded {weatherData.Count} weather observations from Weather.json");
                     }
                 }
-                catch (Exception ex)
-                {
+                catch (Exception ex) {
                     Console.WriteLine($"Warning: Could not load Weather.json: {ex.Message}");
                 }
             }
 
             // Try to load Tide.json
             string tideFile = Path.Combine(referenceDir, settings.TideFile ?? "Tide.json");
-            if (File.Exists(tideFile))
-            {
-                try
-                {
+            if (File.Exists(tideFile)) {
+                try {
                     string tideJson = File.ReadAllText(tideFile);
                     var tideCollection = JsonSerializer.Deserialize<TideDataCollection>(tideJson,
                         new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                     tideData = tideCollection?.Tide;
-                    if (tideData != null && tideData.Count > 0)
-                    {
+                    if (tideData != null && tideData.Count > 0) {
                         Console.WriteLine($"Loaded {tideData.Count} tide events from Tide.json");
                     }
                 }
-                catch (Exception ex)
-                {
+                catch (Exception ex) {
                     Console.WriteLine($"Warning: Could not load Tide.json: {ex.Message}");
                 }
             }
 
             // Load weights from appsettings or use defaults from ModifierWeights class
-            if (settings.WeightSettings != null)
-            {
+            if (settings.WeightSettings != null) {
                 weights = settings.WeightSettings;
                 Console.WriteLine("Loaded custom modifier weights from appsettings.json");
             }
-            else
-            {
+            else {
                 Console.WriteLine("Using default modifier weights from ModifierWeights class");
             }
 
@@ -151,8 +141,7 @@ namespace SolunarBase
             var solunar = new SolunarCalculator(astro);
 
             // STEP 5: Build the input DTO with resolved parameters and optional modifiers
-            var input = new SolunarInput
-            {
+            var input = new SolunarInput {
                 Latitude = lat,
                 Longitude = lon,
                 Date = date,
@@ -166,17 +155,16 @@ namespace SolunarBase
             var result = solunar.Calculate(input);
 
             // STEP 7: Serialize result to JSON (camelCase, ignore nulls) and print to console
-            var json = JsonSerializer.Serialize(result, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                WriteIndented = true,
-                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-            });
+            var json = JsonSerializer.Serialize(result,
+                new JsonSerializerOptions {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                    WriteIndented = true,
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+                });
             Console.WriteLine(json);
 
             // STEP 8: Ensure output directory exists (create if missing)
-            if (!Directory.Exists(outputDir))
-            {
+            if (!Directory.Exists(outputDir)) {
                 Directory.CreateDirectory(outputDir);
             }
 
@@ -190,8 +178,7 @@ namespace SolunarBase
             Console.WriteLine($"Saved JSON to {filePath}"); // JSON output status
 
             // STEP 10: Export to CSV files for Excel analysis
-            try
-            {
+            try {
                 // Export major/minor periods to CSV
                 string periodsFile = Path.Combine(outputDir, $"solunar_periods_{latStr}_{lonStr}_{dateStr}.csv");
                 CsvExporter.ExportPeriodsToCsv(result, periodsFile);
@@ -207,8 +194,20 @@ namespace SolunarBase
                 CsvExporter.ExportSummaryToCsv(result, summaryFile);
                 Console.WriteLine($"Saved Summary CSV to {summaryFile}");
             }
-            catch (Exception ex)
-            {
+            catch (Exception ex) {
+                Console.WriteLine($"Warning: Error exporting CSV files: {ex.Message}");
+            }
+
+            // STEP 11: Copy solunar.json to _ReferenceFiles-Solunar for web visualization
+            try {
+                string visualizationDir = Path.GetFullPath(Path.Combine(projectRoot, "Output"));
+                if (Directory.Exists(visualizationDir)) {
+                    string vizJsonPath = Path.Combine(visualizationDir, "solunar.json");
+                    File.WriteAllText(vizJsonPath, json);
+                    Console.WriteLine($"Copied solunar.json to {vizJsonPath} for web visualization");
+                }
+            }
+            catch (Exception ex) {
                 Console.WriteLine($"Warning: Error exporting CSV files: {ex.Message}");
             }
         }
