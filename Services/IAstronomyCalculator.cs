@@ -4,9 +4,28 @@ namespace SolunarBase.Services;
 
 /// <summary>
 /// Defines the contract for astronomical calculations related to sun and moon positions and events.
+/// Uses the CosineKitty.AstronomyEngine library for precise calculations.
 /// </summary>
 public interface IAstronomyCalculator
 {
+    /// <summary>
+    /// Calculates comprehensive astronomical data for the Sun and Moon for a specific location and date.
+    /// </summary>
+    /// <param name="latitude">The geographic latitude of the location in degrees (-90 to 90).</param>
+    /// <param name="longitude">The geographic longitude of the location in degrees (-180 to 180).</param>
+    /// <param name="date">The date for which to calculate astronomical data.</param>
+    /// <param name="timeZoneId">The time zone ID for the location (e.g., "Europe/Athens").</param>
+    /// <returns>
+    /// An AstronomicalData object containing detailed information about:
+    /// - Sun: rise, set, culmination times and positions
+    /// - Moon: rise, set, transit times, phase, illumination, and distance
+    /// </returns>
+    /// <remarks>
+    /// Uses the CosineKitty.AstronomyEngine library for high-precision calculations.
+    /// All times are returned in UTC and should be converted to local time as needed.
+    /// </remarks>
+    AstronomicalData GetAstronomicalData(double latitude, double longitude, DateOnly date, string timeZoneId);
+    
     /// <summary>
     /// Calculates the sunrise and sunset times for a specific location and date.
     /// </summary>
@@ -19,7 +38,7 @@ public interface IAstronomyCalculator
     /// - SunsetUtc: The sunset time in UTC (null if there is no sunset on that day).
     /// </returns>
     /// <remarks>
-    /// Uses the CoordinateSharp library for astronomical calculations.
+    /// Uses the CosineKitty.AstronomyEngine library for astronomical calculations.
     /// At extreme latitudes (near the poles), there may be no sunrise or sunset.
     /// </remarks>
     (DateTime? SunriseUtc, DateTime? SunsetUtc) GetSunTimes(double latitude, double longitude, DateOnly date);

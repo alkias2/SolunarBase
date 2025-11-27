@@ -77,6 +77,9 @@ public class SolunarCalculator : ISolunarCalculator
         var (moonrise, moonset) = _astro.GetMoonTimes(input.Latitude, input.Longitude, input.Date);
         var (upper, lower) = _astro.GetLunarTransits(input.Latitude, input.Longitude, input.Date);
         result.MoonPhase = _astro.GetMoonPhase(input.Latitude, input.Longitude, input.Date);
+        
+        // Populate comprehensive astronomical data
+        result.Astronomy = _astro.GetAstronomicalData(input.Latitude, input.Longitude, input.Date, tz.Id);
 
         // STEP 2: Build UTC periods for major and minor activity times
         // Major periods are 2-hour windows (±1 hour) centered on lunar transits

@@ -47,6 +47,11 @@ public class SolunarResult
     public List<HourlyActivity> HourlyActivity { get; set; } = new();
     public MoonPhaseInfo MoonPhase { get; set; } = new();
     public string SolunarRating { get; set; } = string.Empty;
+    
+    /// <summary>
+    /// Detailed astronomical data for the Sun and Moon.
+    /// </summary>
+    public AstronomicalData? Astronomy { get; set; }
 
     /// <summary>
     /// Optional detailed breakdown of how each hour's score was calculated.
