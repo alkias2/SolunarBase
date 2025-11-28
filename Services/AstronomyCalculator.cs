@@ -9,6 +9,8 @@ namespace SolunarBase.Services;
 /// </summary>
 public class AstronomyCalculator : IAstronomyCalculator
 {
+    #region Public
+
     /// <summary>
     /// Calculates comprehensive astronomical data for the Sun and Moon.
     /// </summary>
@@ -195,7 +197,7 @@ public class AstronomyCalculator : IAstronomyCalculator
             lowerClosest.time != default ? lowerClosest.time : null
         );
     }
-
+    
     /// <summary>
     /// Calculates the moon phase and illumination using AstronomyEngine.
     /// </summary>
@@ -217,6 +219,10 @@ public class AstronomyCalculator : IAstronomyCalculator
             Illumination = Math.Clamp(illum.phase_fraction, 0.0, 1.0)
         };
     }
+
+    #endregion
+
+    #region Privates
 
     /// <summary>
     /// Gets the Sun's culmination (highest point) time and position.
@@ -294,4 +300,6 @@ public class AstronomyCalculator : IAstronomyCalculator
             _ => "New Moon"
         };
     }
+
+    #endregion
 }

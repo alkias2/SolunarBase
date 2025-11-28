@@ -13,7 +13,13 @@ namespace SolunarBase.Services;
 /// </remarks>
 public class SolunarCalculator : ISolunarCalculator
 {
+    #region Fields
+
     private readonly IAstronomyCalculator _astro;
+
+    #endregion
+
+    #region Ctor
 
     /// <summary>
     /// Initializes a new instance of the SolunarCalculator class.
@@ -23,6 +29,10 @@ public class SolunarCalculator : ISolunarCalculator
     {
         _astro = astro;
     }
+
+    #endregion
+
+    #region Public
 
     /// <summary>
     /// Calculates the complete solunar forecast for a given date and location.
@@ -218,6 +228,10 @@ public class SolunarCalculator : ISolunarCalculator
 
         return result;
     }
+
+    #endregion
+
+    #region Privates
 
     /// <summary>
     /// Calculates the base solunar activity score without weather/tide modifiers.
@@ -469,4 +483,6 @@ public class SolunarCalculator : ISolunarCalculator
             _ => "Poor"            // Below average activity
         };
     }
+
+    #endregion
 }
