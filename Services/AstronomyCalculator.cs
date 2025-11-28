@@ -143,33 +143,57 @@ public class AstronomyCalculator : IAstronomyCalculator
     /// <summary>
     /// Calculates the lunar transit times (upper and lower transit) using AstronomyEngine.
     /// Upper transit = culmination (highest point), Lower transit = anti-culmination (lowest point).
+    /// Returns the transits that are closest to noon of the specified day (in UTC).
+    /// This ensures we get the correct pair of transits for a 24-hour period.
     /// </summary>
     public (DateTime? UpperTransitUtc, DateTime? LowerTransitUtc) GetLunarTransits(double latitude, double longitude, DateOnly date) {
         var observer = new Observer(latitude, longitude, 0.0);
-        var startTime = new AstroTime(date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
         
-        DateTime? upperTransitUtc = null;
-        DateTime? lowerTransitUtc = null;
+        // Target time is noon of the specified day
+        var targetTime = date.ToDateTime(new TimeOnly(12, 0), DateTimeKind.Utc);
         
-        try {
-            // Search for upper transit (hour angle = 0, culmination)
-            var upperTransit = Astronomy.SearchHourAngle(Body.Moon, observer, 0.0, startTime, 1);
-            upperTransitUtc = upperTransit.time.ToUtcDateTime();
-        }
-        catch {
-            // Transit not found
-        }
+        // Search starting from the previous day to catch all possible transits
+        var searchStart = new AstroTime(date.AddDays(-1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
         
-        try {
-            // Search for lower transit (hour angle = 12, anti-culmination)
-            var lowerTransit = Astronomy.SearchHourAngle(Body.Moon, observer, 12.0, startTime, 1);
-            lowerTransitUtc = lowerTransit.time.ToUtcDateTime();
-        }
-        catch {
-            // Transit not found
+        // Find all transits within a 3-day window and pick the ones closest to target
+        List<(DateTime time, bool isUpper)> allTransits = new();
+        
+        // Search for up to 4 transits (2 upper + 2 lower in the window)
+        var currentSearch = searchStart;
+        for (int i = 0; i < 4; i++) {
+            try {
+                var upper = Astronomy.SearchHourAngle(Body.Moon, observer, 0.0, currentSearch, 3);
+                allTransits.Add((upper.time.ToUtcDateTime(), true));
+                currentSearch = upper.time.AddDays(0.1); // Move search forward
+            }
+            catch { break; }
         }
         
-        return (upperTransitUtc, lowerTransitUtc);
+        currentSearch = searchStart;
+        for (int i = 0; i < 4; i++) {
+            try {
+                var lower = Astronomy.SearchHourAngle(Body.Moon, observer, 12.0, currentSearch, 3);
+                allTransits.Add((lower.time.ToUtcDateTime(), false));
+                currentSearch = lower.time.AddDays(0.1); // Move search forward
+            }
+            catch { break; }
+        }
+        
+        // Find the upper and lower transits closest to noon of the target day
+        var upperClosest = allTransits
+            .Where(t => t.isUpper)
+            .OrderBy(t => Math.Abs((t.time - targetTime).TotalHours))
+            .FirstOrDefault();
+            
+        var lowerClosest = allTransits
+            .Where(t => !t.isUpper)
+            .OrderBy(t => Math.Abs((t.time - targetTime).TotalHours))
+            .FirstOrDefault();
+        
+        return (
+            upperClosest.time != default ? upperClosest.time : null,
+            lowerClosest.time != default ? lowerClosest.time : null
+        );
     }
 
     /// <summary>

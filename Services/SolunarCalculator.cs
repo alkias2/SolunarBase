@@ -82,44 +82,55 @@ public class SolunarCalculator : ISolunarCalculator
         result.Astronomy = _astro.GetAstronomicalData(input.Latitude, input.Longitude, input.Date, tz.Id);
 
         // STEP 2: Build UTC periods for major and minor activity times
-        // Major periods are 2-hour windows (±1 hour) centered on lunar transits
-        // Minor periods are 1-hour windows starting from moonrise/moonset
+        // Major periods are 4-hour windows (±2 hours) centered on lunar transits (overhead/underfoot)
+        // Minor periods are 2-hour windows (±1 hour) centered on moonrise/moonset
         var majorUtc = new List<SolunarPeriod>();
         var minorUtc = new List<SolunarPeriod>();
         
-        // Major period: Upper transit (moon at highest point in the sky)
+        // Major period: Upper transit (moon at highest point in the sky - OVERHEAD)
         // This is considered the most active feeding/hunting time
+        // Window: ±2 hours around the transit time
         if (upper.HasValue)
         {
-            var start = upper.Value.AddHours(-1);  // 1 hour before transit
-            var end = upper.Value.AddHours(1);      // 1 hour after transit
+            var start = upper.Value.AddHours(-2);  // 2 hours before transit
+            var end = upper.Value.AddHours(2);      // 2 hours after transit
             majorUtc.Add(new SolunarPeriod { Type = SolunarPeriodType.UpperTransit, Start = start, End = end, Center = upper.Value });
         }
         
-        // Major period: Lower transit (moon at lowest point, often below horizon)
+        // Major period: Lower transit (moon at lowest point - UNDERFOOT, often below horizon)
         // Also considered a highly active period
+        // Window: ±2 hours around the transit time
         if (lower.HasValue)
         {
-            var start = lower.Value.AddHours(-1);
-            var end = lower.Value.AddHours(1);
+            var start = lower.Value.AddHours(-2);
+            var end = lower.Value.AddHours(2);
             majorUtc.Add(new SolunarPeriod { Type = SolunarPeriodType.LowerTransit, Start = start, End = end, Center = lower.Value });
         }
         
+        // Sort major periods chronologically (earliest first)
+        // This ensures the period that occurs first in the day appears first in the results
+        majorUtc = majorUtc.OrderBy(p => p.Center).ToList();
+        
         // Minor period: Moonrise (moon appears on the horizon)
-        // Activity period is 1 hour starting from moonrise, centered at +30 minutes
+        // Activity period is 2 hours centered on moonrise (±1 hour)
         if (moonrise.HasValue)
         {
-            var center = moonrise.Value.AddMinutes(30);  // Center is 30 minutes after moonrise
-            minorUtc.Add(new SolunarPeriod { Type = SolunarPeriodType.Moonrise, Start = moonrise.Value, End = moonrise.Value.AddHours(1), Center = center });
+            var start = moonrise.Value.AddHours(-1);  // 1 hour before moonrise
+            var end = moonrise.Value.AddHours(1);     // 1 hour after moonrise
+            minorUtc.Add(new SolunarPeriod { Type = SolunarPeriodType.Moonrise, Start = start, End = end, Center = moonrise.Value });
         }
         
         // Minor period: Moonset (moon disappears below the horizon)
-        // Similar to moonrise, 1-hour period centered at +30 minutes
+        // Activity period is 2 hours centered on moonset (±1 hour)
         if (moonset.HasValue)
         {
-            var center = moonset.Value.AddMinutes(30);
-            minorUtc.Add(new SolunarPeriod { Type = SolunarPeriodType.Moonset, Start = moonset.Value, End = moonset.Value.AddHours(1), Center = center });
+            var start = moonset.Value.AddHours(-1);  // 1 hour before moonset
+            var end = moonset.Value.AddHours(1);     // 1 hour after moonset
+            minorUtc.Add(new SolunarPeriod { Type = SolunarPeriodType.Moonset, Start = start, End = end, Center = moonset.Value });
         }
+        
+        // Sort minor periods chronologically as well
+        minorUtc = minorUtc.OrderBy(p => p.Center).ToList();
 
         // STEP 3: Calculate hourly activity scores (0-100) for each hour of the day
         var hourly = new List<HourlyActivity>();
@@ -224,34 +235,54 @@ public class SolunarCalculator : ISolunarCalculator
         double score = 0;
 
         // Calculate contribution from major periods using Gaussian decay
-        // Maximum contribution is 100 points within ±90 minutes of period center
+        // Based on solunar theory observations:
+        // - UpperTransit (Overhead): 100% strength - moon at highest point, strongest influence
+        // - LowerTransit (Underfoot): 90% strength - moon below horizon, 5-15% weaker than overhead
         foreach (var p in majorUtc)
         {
             var dist = Math.Abs((t - p.Center).TotalMinutes);  // Distance in minutes from period center
-            if (dist <= 90)  // Only contribute if within 90-minute window
+            if (dist <= 120)  // Only contribute if within 120-minute (2-hour) window
             {
+                // Base peak value depends on period type
+                double basePeak = p.Type switch
+                {
+                    SolunarPeriodType.UpperTransit => 100.0,  // Overhead (strongest major)
+                    SolunarPeriodType.LowerTransit => 90.0,   // Underfoot (5-15% weaker, using 10% reduction)
+                    _ => 100.0
+                };
+                
                 // Gaussian decay: score decreases as distance from center increases
-                // Formula: 100 * e^(-(dist²/800))
-                // At center (dist=0): 100 points
-                // At ±45 min: ~60 points
-                // At ±90 min: ~10 points
-                var contrib = 100 * Math.Exp(-(dist * dist) / 800.0);
+                // Formula: basePeak * e^(-(dist²/1800))
+                // At center (dist=0): basePeak points
+                // At ±60 min: ~basePeak/2 points
+                // At ±120 min: ~basePeak/10 points
+                var contrib = basePeak * Math.Exp(-(dist * dist) / 1800.0);
                 score = Math.Max(score, contrib);  // Take the maximum if multiple periods overlap
             }
         }
         
         // Calculate contribution from minor periods using steeper Gaussian decay
-        // Maximum contribution is 70 points within ±45 minutes of period center
+        // Based on solunar theory observations:
+        // - Moonrise: 70% strength - moon rising creates stronger feeding trigger
+        // - Moonset: 63% strength - moon setting is 5-10% weaker (using 10% reduction of 70)
         foreach (var p in minorUtc)
         {
             var dist = Math.Abs((t - p.Center).TotalMinutes);
-            if (dist <= 45)  // Only contribute if within 45-minute window
+            if (dist <= 60)  // Only contribute if within 60-minute (1-hour) window
             {
-                // Steeper decay for minor periods: 70 * e^(-(dist²/200))
-                // At center: 70 points
-                // At ±30 min: ~15 points
-                // At ±45 min: ~3 points
-                var contrib = 70 * Math.Exp(-(dist * dist) / 200.0);
+                // Base peak value depends on period type
+                double basePeak = p.Type switch
+                {
+                    SolunarPeriodType.Moonrise => 70.0,   // Rising moon (stronger minor)
+                    SolunarPeriodType.Moonset => 63.0,    // Setting moon (5-10% weaker, using 10% reduction)
+                    _ => 70.0
+                };
+                
+                // Steeper decay for minor periods: basePeak * e^(-(dist²/450))
+                // At center: basePeak points
+                // At ±30 min: ~basePeak/2 points
+                // At ±60 min: ~basePeak/10 points
+                var contrib = basePeak * Math.Exp(-(dist * dist) / 450.0);
                 score = Math.Max(score, contrib);
             }
         }

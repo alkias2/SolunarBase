@@ -2,10 +2,10 @@ namespace SolunarBase.Models;
 
 public enum SolunarPeriodType
 {
-    UpperTransit,
-    LowerTransit,
-    Moonrise,
-    Moonset
+    LowerTransit,  // 0 - Underfoot (occurs first chronologically in most cases)
+    UpperTransit,  // 1 - Overhead (occurs second chronologically in most cases)
+    Moonrise,      // 2
+    Moonset        // 3
 }
 
 public class SolunarPeriod
