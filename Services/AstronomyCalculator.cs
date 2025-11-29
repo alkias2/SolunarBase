@@ -87,10 +87,14 @@ public class AstronomyCalculator : IAstronomyCalculator
         return astroData;
     }
 
+    #endregion
+
+    #region Privates
+
     /// <summary>
     /// Calculates the sunrise and sunset times using AstronomyEngine.
     /// </summary>
-    public (DateTime? SunriseUtc, DateTime? SunsetUtc) GetSunTimes(double latitude, double longitude, DateOnly date) {
+    private (DateTime? SunriseUtc, DateTime? SunsetUtc) GetSunTimes(double latitude, double longitude, DateOnly date) {
         var observer = new Observer(latitude, longitude, 0.0);
         var startTime = new AstroTime(date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
         
@@ -118,7 +122,7 @@ public class AstronomyCalculator : IAstronomyCalculator
     /// <summary>
     /// Calculates the moonrise and moonset times using AstronomyEngine.
     /// </summary>
-    public (DateTime? MoonriseUtc, DateTime? MoonsetUtc) GetMoonTimes(double latitude, double longitude, DateOnly date) {
+    private (DateTime? MoonriseUtc, DateTime? MoonsetUtc) GetMoonTimes(double latitude, double longitude, DateOnly date) {
         var observer = new Observer(latitude, longitude, 0.0);
         var startTime = new AstroTime(date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
         
@@ -148,7 +152,7 @@ public class AstronomyCalculator : IAstronomyCalculator
     /// Returns the transits that are closest to noon of the specified day (in UTC).
     /// This ensures we get the correct pair of transits for a 24-hour period.
     /// </summary>
-    public (DateTime? UpperTransitUtc, DateTime? LowerTransitUtc) GetLunarTransits(double latitude, double longitude, DateOnly date) {
+    private (DateTime? UpperTransitUtc, DateTime? LowerTransitUtc) GetLunarTransits(double latitude, double longitude, DateOnly date) {
         var observer = new Observer(latitude, longitude, 0.0);
         
         // Target time is noon of the specified day
@@ -201,7 +205,7 @@ public class AstronomyCalculator : IAstronomyCalculator
     /// <summary>
     /// Calculates the moon phase and illumination using AstronomyEngine.
     /// </summary>
-    public MoonPhaseInfo GetMoonPhase(double latitude, double longitude, DateOnly date) {
+    private MoonPhaseInfo GetMoonPhase(double latitude, double longitude, DateOnly date) {
         // Use noon UTC for phase calculation to get a representative value for the day
         var noonTime = new AstroTime(date.ToDateTime(new TimeOnly(12, 0), DateTimeKind.Utc));
         
@@ -219,10 +223,6 @@ public class AstronomyCalculator : IAstronomyCalculator
             Illumination = Math.Clamp(illum.phase_fraction, 0.0, 1.0)
         };
     }
-
-    #endregion
-
-    #region Privates
 
     /// <summary>
     /// Gets the Sun's culmination (highest point) time and position.
